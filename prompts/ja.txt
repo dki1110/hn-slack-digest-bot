@@ -1,0 +1,27 @@
+OUTPUT_LANG=ja
+
+data/hn_with_text.json を読み、items の各記事について要約を作ってください。
+出力する文章は必ず日本語にしてください。
+
+入力の使い方:
+- source_text がある場合はそれを最優先で要約。
+- source_text が無い場合は title/url/domain とHNメタ(points/comments)から要約（推測しすぎない）。
+- comment_texts がある場合は、コメントの内容を「賛成/反対/論点」で短く要約。
+
+出力要件（schema.jsonに厳密準拠）:
+- lang: "ja"
+- summary: 3〜5文。何の話か/何が新しいか/なぜ重要か を含める。
+- bullets: 5点前後（最大8）。事実・注意点・数字・固有名詞を優先。
+- comment_pro: コメントの“賛成/支持”の代表論点を 0〜3点（短く）。材料がなければ空配列。
+- comment_con: コメントの“反対/懸念”の代表論点を 0〜3点（短く）。材料がなければ空配列。
+- comment_points: 賛否を問わない“論点/争点/比較軸/未解決点”を 0〜3点（短く）。材料がなければ空配列。
+- confidence: high/medium/low（本文無しならlow寄り）
+- used_body: source_text を実際に使ったなら true
+- body_source: hn_with_text.json の body_source をそのまま
+
+制約:
+- 憶測で断定しない。source_text/comment_texts に無い情報は書かない。
+- 原文の長い引用は禁止（転載防止）。
+- コメント要約は「主流の意見」を優先し、極端な一意見を一般化しない。
+
+出力は schema.json に従うJSON。dateは今日(YYYY-MM-DD)。

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.example.hn-slack-bot</string>
+
+    <!-- Run every day at 07:30 -->
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key><integer>7</integer>
+      <key>Minute</key><integer>30</integer>
+    </dict>
+
+    <!-- Adjust these paths after copying the project to your home directory -->
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/bash</string>
+      <string>-lc</string>
+      <string>cd "$HOME/hn-slack-bot" &amp;&amp; ./run.sh</string>
+    </array>
+
+    <!-- Environment variables (recommended instead of sourcing .env in launchd) -->
+    <!-- Put your real webhook URL here OR set it via launchctl setenv -->
+    <!--
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>SLACK_WEBHOOK_URL</key><string>https://hooks.slack.com/services/XXX/YYY/ZZZ</string>
+      <key>FETCH_ARTICLE_BODY</key><string>false</string>
+      <key>BODY_MODE</key><string>ogp_only</string>
+      <key>BODY_FETCH_MAX</key><string>5</string>
+      <key>HN_TOP_N</key><string>20</string>
+      <key>USER_AGENT</key><string>hn-digest-bot/1.0 (contact: you@example.com)</string>
+    </dict>
+    -->
+
+    <key>StandardOutPath</key>
+    <string>/tmp/hn-slack-bot.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/hn-slack-bot.err.log</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+  </dict>
+</plist>

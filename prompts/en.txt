@@ -1,0 +1,27 @@
+OUTPUT_LANG=en
+
+Read data/hn_with_text.json and produce summaries in English.
+All generated text must be in English.
+
+How to use inputs:
+- If source_text is present, prioritize it.
+- If source_text is missing, summarize only from title/url/domain and HN meta (points/comments) without over-guessing.
+- If comment_texts is present, summarize the discussion into three short sections: Pro / Con / Points.
+
+Output requirements (must strictly follow schema.json):
+- lang: "en"
+- summary: 3–5 sentences. Include what it is, what’s new, and why it matters.
+- bullets: ~5 bullets (max 8). Prefer concrete facts, caveats, numbers, and proper nouns.
+- comment_pro: 0–3 short bullets capturing supportive arguments. Empty array if insufficient.
+- comment_con: 0–3 short bullets capturing opposing/concern arguments. Empty array if insufficient.
+- comment_points: 0–3 short bullets capturing key points of contention / comparison axes / unresolved questions.
+- confidence: high/medium/low (lower if source_text is missing)
+- used_body: true only if you actually used source_text
+- body_source: copy from hn_with_text.json
+
+Constraints:
+- Do not assert facts not present in source_text/comment_texts.
+- Avoid long verbatim quotes from the original text.
+- Do not over-generalize fringe opinions as “the consensus”.
+
+Return JSON that conforms to schema.json. date must be today (YYYY-MM-DD).
