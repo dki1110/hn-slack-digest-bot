@@ -38,8 +38,7 @@ echo "[hn-bot] Fetch article text + HN comments..."
 "$PY" fetch_article_text.py
 
 echo "[hn-bot] Summarize via Codex (needs prior login)..."
-PROMPT="$(cat "$PROMPT_FILE")"
-codex exec "$PROMPT" --output-schema ./schema.json -o ./data/summaries.json --full-auto
+"$PY" summarize.py
 
 echo "[hn-bot] Build Slack payload..."
 PAYLOAD_PATH=$("$PY" build_slack_payload.py)

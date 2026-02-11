@@ -9,6 +9,7 @@ load_dotenv()
 
 HN_TOP_N = int(os.getenv("HN_TOP_N", "20"))
 SLACK_PREFIX = os.getenv("SLACK_PREFIX", "").strip()
+SLACK_MSG_LIMIT = int(os.getenv("SLACK_MSG_LIMIT", "3500"))
 
 def md_link(text: str, url: str) -> str:
     if not url:
@@ -31,7 +32,8 @@ def labels(lang: str):
             "pro": "Pro",
             "con": "Con",
             "points": "Points",
-            "note": "Note: comment summaries are based on fetched HN comments (up to HN_COMMENTS_MAX). If article body is unavailable, summaries rely on metadata."
+            "note": "Note: comment summaries are based on fetched HN comments (up to HN_COMMENTS_MAX). If article body is unavailable, summaries rely on metadata.",
+            "continued": "_(Hacker News Digest continued)_",
         }
     return {
         "digest": "Hacker News Digest",
@@ -39,8 +41,102 @@ def labels(lang: str):
         "pro": "賛成",
         "con": "反対",
         "points": "論点",
-        "note": "注: コメント要約は取得できたコメント（最大HN_COMMENTS_MAX件）からの要約です。本文未取得の記事はメタ情報ベースになります。"
+        "note": "注: コメント要約は取得できたコメント（最大HN_COMMENTS_MAX件）からの要約です。本文未取得の記事はメタ情報ベースになります。",
+        "continued": "_(Hacker News Digest 続き)_",
     }
+
+
+def format_item(idx: int, it: dict, s: dict | None, L: dict) -> str:
+    """Format a single HN item as Slack mrkdwn text."""
+    title = it.get("title", "") or "(no title)"
+    url = it.get("url", "")
+    pts = it.get("points")
+    com = it.get("comments")
+    domain = it.get("domain", "")
+    meta = f"▲{pts} / 💬{com} / {domain}"
+
+    if not s:
+        return f"{idx}. {md_link(title, url)}  _{meta}_\n"
+
+    used = "body" if s.get("used_body") else "meta"
+    conf = s.get("confidence", "")
+    src = s.get("body_source", "")
+    comment_fetched = int(it.get("comment_count_fetched") or 0)
+    comment_tag = f"comments:{comment_fetched}"
+
+    lines = []
+    lines.append(
+        f"{idx}. {md_link(title, url)}  _{meta}_  "
+        f"`{used}` `{conf}` `{src}` `{comment_tag}`"
+    )
+    lines.append(f"   {s.get('summary', '').strip()}")
+
+    bullets = s.get("bullets", [])[:8]
+    for b in bullets[:5]:
+        lines.append(f"   • {b}")
+
+    pro = s.get("comment_pro", []) or []
+    con = s.get("comment_con", []) or []
+    pts2 = s.get("comment_points", []) or []
+
+    if comment_fetched > 0 and (pro or con or pts2):
+        lines += fmt_section(L["pro"], pro, max_n=3)
+        lines += fmt_section(L["con"], con, max_n=3)
+        lines += fmt_section(L["points"], pts2, max_n=3)
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def split_into_payloads(
+    header: str,
+    body_source_line: str,
+    item_blocks: list[str],
+    footer: str,
+    continued_header: str,
+    limit: int = SLACK_MSG_LIMIT,
+) -> list[dict]:
+    """Split formatted items into multiple Slack payloads at item boundaries."""
+    payloads: list[dict] = []
+    current_lines: list[str] = []
+    is_first = True
+
+    def current_len() -> int:
+        return len("\n".join(current_lines))
+
+    def flush():
+        nonlocal current_lines, is_first
+        if not current_lines:
+            return
+        # Append footer to last payload (added later in main)
+        payloads.append({"text": "\n".join(current_lines)})
+        current_lines = []
+        is_first = False
+
+    # Start first message with header
+    current_lines.append(header)
+    if body_source_line:
+        current_lines.append("")
+        current_lines.append(body_source_line)
+    current_lines.append("")
+
+    for block in item_blocks:
+        # Check if adding this block would exceed the limit
+        tentative = current_len() + len("\n") + len(block)
+        if tentative > limit and current_lines:
+            flush()
+            # Start continuation message
+            current_lines.append(continued_header)
+            current_lines.append("")
+
+        current_lines.append(block)
+
+    # Append footer to whatever is in the buffer
+    current_lines.append(footer)
+    flush()
+
+    return payloads
+
 
 def main() -> None:
     with open("data/hn_with_text.json", encoding="utf-8") as f:
@@ -55,59 +151,32 @@ def main() -> None:
 
     today = hn.get("date") or date.today().isoformat()
     header = f"{SLACK_PREFIX}\n*{L['digest']}* ({today})  {L['top']}{HN_TOP_N}"
-    lines = [header, ""]
 
     body_sources = Counter(i.get("body_source") for i in hn.get("items", []))
+    body_source_line = ""
     if body_sources:
-        lines.append(f"_body_source: {dict(body_sources)}_")
-        lines.append("")
+        body_source_line = f"_body_source: {dict(body_sources)}_"
 
+    item_blocks: list[str] = []
     for idx, it in enumerate(hn["items"], start=1):
-        sid = str(it.get("hn_id",""))
+        sid = str(it.get("hn_id", ""))
         s = sm_by_id.get(sid)
-        title = it.get("title","") or "(no title)"
-        url = it.get("url","")
-        pts = it.get("points")
-        com = it.get("comments")
-        domain = it.get("domain","")
-        meta = f"▲{pts} / 💬{com} / {domain}"
+        item_blocks.append(format_item(idx, it, s, L))
 
-        if not s:
-            lines.append(f"{idx}. {md_link(title, url)}  _{meta}_")
-            lines.append("")
-            continue
+    footer = f"_{L['note']}_"
 
-        used = "body" if s.get("used_body") else "meta"
-        conf = s.get("confidence","")
-        src = s.get("body_source","")
-        comment_fetched = int(it.get("comment_count_fetched") or 0)
-        comment_tag = f"comments:{comment_fetched}"
+    payloads = split_into_payloads(
+        header=header,
+        body_source_line=body_source_line,
+        item_blocks=item_blocks,
+        footer=footer,
+        continued_header=L["continued"],
+    )
 
-        lines.append(f"{idx}. {md_link(title, url)}  _{meta}_  `{used}` `{conf}` `{src}` `{comment_tag}`")
-        lines.append(f"   {s.get('summary','').strip()}")
-
-        bullets = s.get("bullets", [])[:8]
-        for b in bullets[:5]:
-            lines.append(f"   • {b}")
-
-        pro = s.get("comment_pro", []) or []
-        con = s.get("comment_con", []) or []
-        pts2 = s.get("comment_points", []) or []
-
-        if comment_fetched > 0 and (pro or con or pts2):
-            lines += fmt_section(L["pro"], pro, max_n=3)
-            lines += fmt_section(L["con"], con, max_n=3)
-            lines += fmt_section(L["points"], pts2, max_n=3)
-
-        lines.append("")
-
-    lines.append(f"_{L['note']}_")
-
-    payload = {"text": "\n".join(lines)}
     os.makedirs("out", exist_ok=True)
     out_path = f"out/slack_payload_{today}.json"
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+        json.dump(payloads, f, ensure_ascii=False, indent=2)
     print(out_path)
 
 if __name__ == "__main__":
