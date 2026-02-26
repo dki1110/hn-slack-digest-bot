@@ -19,6 +19,15 @@ if [[ -f .env ]]; then
   done < .env
 fi
 
+# Parse optional args:
+#   -n <N>  Override HN_TOP_N (number of items to process)
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n) export HN_TOP_N="$2"; shift 2 ;;
+    *)  echo "[hn-bot] Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+
 # Prompt switching:
 # - PROMPT_LANG=ja|en (default: en)
 # - or set PROMPT_FILE to a custom path
@@ -40,10 +49,14 @@ echo "[hn-bot] Fetch article text + HN comments..."
 echo "[hn-bot] Summarize via Codex (needs prior login)..."
 "$PY" summarize.py
 
-echo "[hn-bot] Build Slack payload..."
-PAYLOAD_PATH=$("$PY" build_slack_payload.py)
+if [[ "${POST_EACH:-}" =~ ^(1|true|yes)$ ]]; then
+  echo "[hn-bot] POST_EACH=true: skipping digest post."
+else
+  echo "[hn-bot] Build Slack payload..."
+  PAYLOAD_PATH=$("$PY" build_slack_payload.py)
 
-echo "[hn-bot] Post to Slack..."
-"$PY" post_to_slack.py "$PAYLOAD_PATH"
+  echo "[hn-bot] Post to Slack..."
+  "$PY" post_to_slack.py "$PAYLOAD_PATH"
+fi
 
 echo "[hn-bot] Done."

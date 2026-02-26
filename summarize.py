@@ -3,6 +3,8 @@
 
 Reads data/hn_with_text.json, calls codex exec once per item,
 merges results into data/summaries.json.
+
+Set POST_EACH=true to post each summarized item to Slack immediately.
 """
 import glob
 import json
@@ -12,6 +14,7 @@ import sys
 import time
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,10 +24,39 @@ CODEX_TIMEOUT = int(os.getenv("CODEX_TIMEOUT", "300"))  # 5 minutes
 PROMPT_LANG = os.getenv("PROMPT_LANG", "en")
 PROMPT_FILE = os.getenv("PROMPT_FILE", f"prompts/{PROMPT_LANG}.txt")
 
+POST_EACH = os.getenv("POST_EACH", "").lower() in ("1", "true", "yes")
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "").strip()
+SLACK_POST_DELAY = float(os.getenv("SLACK_POST_DELAY", "1"))
+REQUEST_TIMEOUT_SEC = int(os.getenv("REQUEST_TIMEOUT_SEC", "15"))
+
 DATA_DIR = Path("data")
 PARTS_DIR = DATA_DIR / "_summaries_parts"
 SCHEMA_FILE = Path("schema.json")
 OUTPUT_FILE = DATA_DIR / "summaries.json"
+
+# Lazy import to avoid circular dependency at module level
+def _get_formatters():
+    from build_slack_payload import format_item, labels  # noqa: PLC0415
+    return format_item, labels
+
+
+def post_item_to_slack(item: dict, summary: dict, idx: int, total: int) -> None:
+    """Post a single summarized item to Slack immediately."""
+    if not SLACK_WEBHOOK_URL:
+        print("  [slack] SLACK_WEBHOOK_URL not set, skipping", file=sys.stderr)
+        return
+    format_item, labels = _get_formatters()
+    lang = "ja" if "ja" in PROMPT_LANG else "en"
+    L = labels(lang)
+    text = format_item(idx, item, summary, L)
+    try:
+        r = requests.post(SLACK_WEBHOOK_URL, json={"text": text}, timeout=REQUEST_TIMEOUT_SEC)
+        if r.status_code >= 400:
+            print(f"  [slack] webhook failed: {r.status_code} {r.text}", file=sys.stderr)
+        else:
+            print(f"  [slack] posted item {idx}/{total}")
+    except Exception as e:
+        print(f"  [slack] error posting: {e}", file=sys.stderr)
 
 
 def load_prompt() -> str:
@@ -125,6 +157,11 @@ def main() -> None:
         if result:
             parts.append(result)
             print(f"  -> OK")
+            if POST_EACH:
+                summary_item = result["items"][0] if result.get("items") else None
+                if summary_item:
+                    time.sleep(SLACK_POST_DELAY)
+                    post_item_to_slack(item, summary_item, num, len(items))
         else:
             print(f"  -> SKIPPED (all retries failed)", file=sys.stderr)
 
